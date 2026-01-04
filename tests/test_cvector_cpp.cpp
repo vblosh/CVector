@@ -1,0 +1,360 @@
+#include <iostream>
+#include <cassert>
+#include <vector>
+#include <algorithm>
+#include "cvector.hpp"
+
+int test_construction() {
+    // Default constructor
+    cvector::Vector<int> v1;
+    assert(v1.empty());
+    assert(v1.size() == 0);
+    
+    // Constructor with capacity
+    cvector::Vector<int> v2(20);
+    assert(v2.empty());
+    assert(v2.capacity() >= 20);
+    
+    // Copy constructor
+    v1.push_back(42);
+    cvector::Vector<int> v3(v1);
+    assert(v3.size() == 1);
+    assert(v3[0] == 42);
+    
+    // Move constructor
+    cvector::Vector<int> v4(std::move(v1));
+    assert(v4.size() == 1);
+    assert(v1.size() == 0);  // v1 should be empty after move
+    
+    // Initializer list constructor
+    cvector::Vector<int> v5{1, 2, 3, 4, 5};
+    assert(v5.size() == 5);
+    assert(v5[0] == 1);
+    assert(v5[4] == 5);
+    
+    std::cout << "? test_construction passed\n";
+    return 0;
+}
+
+int test_push_pop() {
+    cvector::Vector<int> v;
+    
+    // Push back
+    for (int i = 0; i < 5; ++i) {
+        v.push_back(i * 10);
+    }
+    assert(v.size() == 5);
+    
+    // Pop back
+    v.pop_back();
+    assert(v.size() == 4);
+    assert(v.back() == 30);
+    
+    std::cout << "? test_push_pop passed\n";
+    return 0;
+}
+
+int test_element_access() {
+    cvector::Vector<int> v{10, 20, 30, 40, 50};
+    
+    // operator[]
+    assert(v[0] == 10);
+    assert(v[2] == 30);
+    assert(v[4] == 50);
+    
+    // at()
+    assert(v.at(1) == 20);
+    assert(v.at(3) == 40);
+    
+    // front() and back()
+    assert(v.front() == 10);
+    assert(v.back() == 50);
+    
+    // Bounds checking
+    try {
+        v.at(5);
+        assert(false);  // Should throw
+    } catch (const std::out_of_range&) {
+        // Expected
+    }
+    
+    std::cout << "? test_element_access passed\n";
+    return 0;
+}
+
+int test_iterators() {
+    cvector::Vector<int> v{1, 2, 3, 4, 5};
+    
+    // Forward iteration
+    int count = 0;
+    for (auto it = v.begin(); it != v.end(); ++it) {
+        assert(*it == ++count);
+    }
+    
+    // Reverse iteration
+    count = 6;
+    for (auto it = v.rbegin(); it != v.rend(); ++it) {
+        assert(*it == --count);
+    }
+    
+    // const iterator
+    const cvector::Vector<int>& cv = v;
+    count = 0;
+    for (auto it = cv.begin(); it != cv.end(); ++it) {
+        assert(*it == ++count);
+    }
+    
+    // Range-based for loop
+    count = 0;
+    for (const auto& elem : v) {
+        assert(elem == ++count);
+    }
+    
+    // Iterator arithmetic
+    auto it = v.begin();
+    assert(*(it + 2) == 3);
+    assert(*(v.end() - 1) == 5);
+    
+    // Iterator distance
+    assert(std::distance(v.begin(), v.end()) == 5);
+    
+    std::cout << "? test_iterators passed\n";
+    return 0;
+}
+
+int test_modification() {
+    cvector::Vector<int> v{1, 2, 3, 4, 5};
+    
+    // Modify through iterator
+    auto it = v.begin();
+    ++it;
+    *it = 99;
+    assert(v[1] == 99);
+    
+    // Insert single element
+    v.insert(v.begin() + 2, 77);
+    assert(v.size() == 6);
+    assert(v[2] == 77);
+    
+    // Insert multiple elements (count version)
+    cvector::Vector<int> v2{10, 20, 30};
+    v2.insert(v2.cbegin() + 1, size_t(3), 15);
+    assert(v2.size() == 6);
+    assert(v2[1] == 15);
+    assert(v2[2] == 15);
+    assert(v2[3] == 15);
+    
+    // Erase single element
+    cvector::Vector<int> v3{1, 2, 3, 4, 5};
+    v3.erase(v3.begin() + 2);
+    assert(v3.size() == 4);
+    assert(v3[2] == 4);
+    
+    // Erase range
+    cvector::Vector<int> v4{1, 2, 3, 4, 5};
+    v4.erase(v4.begin() + 1, v4.begin() + 3);
+    assert(v4.size() == 3);
+    assert(v4[0] == 1);
+    assert(v4[1] == 4);
+    assert(v4[2] == 5);
+    
+    // Clear
+    v4.clear();
+    assert(v4.empty());
+    
+    std::cout << "? test_modification passed\n";
+    return 0;
+}
+
+int test_capacity() {
+    cvector::Vector<int> v;
+    assert(v.capacity() >= 10);  // Initial capacity
+    
+    // Reserve
+    v.reserve(100);
+    assert(v.capacity() >= 100);
+    
+    // Resize
+    v.resize(10);
+    assert(v.size() == 10);
+    
+    // Resize with value
+    cvector::Vector<int> v2{1, 2, 3};
+    v2.resize(5, 99);
+    assert(v2.size() == 5);
+    assert(v2[3] == 99);
+    assert(v2[4] == 99);
+    
+    // Shrink to fit
+    cvector::Vector<int> v3{1, 2, 3};
+    v3.reserve(1000);
+    v3.shrink_to_fit();
+    assert(v3.capacity() == 3);
+    assert(v3.size() == 3);
+    
+    std::cout << "? test_capacity passed\n";
+    return 0;
+}
+
+int test_comparison() {
+    cvector::Vector<int> v1{1, 2, 3};
+    cvector::Vector<int> v2{1, 2, 3};
+    cvector::Vector<int> v3{1, 2, 4};
+    cvector::Vector<int> v4{1, 2};
+    
+    // Equality
+    assert(v1 == v2);
+    assert(!(v1 == v3));
+    
+    // Inequality
+    assert(v1 != v3);
+    assert(!(v1 != v2));
+    
+    // Less than
+    assert(v1 < v3);
+    assert(!(v3 < v1));
+    assert(v4 < v1);
+    
+    // Greater than
+    assert(v3 > v1);
+    assert(!(v1 > v3));
+    
+    // Less than or equal
+    assert(v1 <= v2);
+    assert(v1 <= v3);
+    
+    // Greater than or equal
+    assert(v2 >= v1);
+    assert(v3 >= v1);
+    
+    std::cout << "? test_comparison passed\n";
+    return 0;
+}
+
+int test_assignment() {
+    // Copy assignment
+    cvector::Vector<int> v1{1, 2, 3};
+    cvector::Vector<int> v2;
+    v2 = v1;
+    assert(v2 == v1);
+    assert(v2[0] == 1);
+    
+    // Move assignment
+    cvector::Vector<int> v3;
+    v3 = std::move(v1);
+    assert(v3[0] == 1);
+    assert(v1.size() == 0);
+    
+    // Initializer list assignment
+    cvector::Vector<int> v4;
+    v4 = {5, 6, 7};
+    assert(v4.size() == 3);
+    assert(v4[0] == 5);
+    
+    std::cout << "? test_assignment passed\n";
+    return 0;
+}
+
+int test_swap() {
+    cvector::Vector<int> v1{1, 2, 3};
+    cvector::Vector<int> v2{4, 5, 6, 7};
+    
+    size_t size1 = v1.size();
+    size_t size2 = v2.size();
+    
+    v1.swap(v2);
+    
+    assert(v1.size() == size2);
+    assert(v2.size() == size1);
+    assert(v1[0] == 4);
+    assert(v2[0] == 1);
+    
+    // Using non-member swap
+    cvector::swap(v1, v2);
+    assert(v1[0] == 1);
+    assert(v2[0] == 4);
+    
+    std::cout << "? test_swap passed\n";
+    return 0;
+}
+
+int test_stl_algorithms() {
+    cvector::Vector<int> v{3, 1, 4, 1, 5, 9, 2, 6};
+    
+    // std::find
+    auto it = std::find(v.begin(), v.end(), 4);
+    assert(it != v.end());
+    assert(*it == 4);
+    assert(std::distance(v.begin(), it) == 2);
+    
+    // std::count
+    size_t count = std::count(v.begin(), v.end(), 1);
+    assert(count == 2);
+    
+    // std::sort
+    cvector::Vector<int> v_copy = v;
+    std::sort(v_copy.begin(), v_copy.end());
+    assert(v_copy[0] == 1);
+    assert(v_copy[7] == 9);
+    
+    // std::reverse
+    cvector::Vector<int> v2{1, 2, 3, 4, 5};
+    std::reverse(v2.begin(), v2.end());
+    assert(v2[0] == 5);
+    assert(v2[4] == 1);
+    
+    // std::fill
+    cvector::Vector<int> v3(5);
+    std::fill(v3.begin(), v3.end(), 42);
+    for (const auto& elem : v3) {
+        assert(elem == 42);
+    }
+    
+    std::cout << "? test_stl_algorithms passed\n";
+    return 0;
+}
+
+int test_complex_types() {
+    struct Point {
+        int x, y;
+        bool operator==(const Point& other) const {
+            return x == other.x && y == other.y;
+        }
+    };
+    
+    cvector::Vector<Point> v;
+    v.push_back({1, 2});
+    v.push_back({3, 4});
+    v.push_back({5, 6});
+    
+    assert(v.size() == 3);
+    assert(v[0].x == 1);
+    assert(v[1].y == 4);
+    assert(v.back().x == 5);
+    
+    // Modify through iterator
+    v[1].y = 99;
+    assert(v[1].y == 99);
+    
+    std::cout << "? test_complex_types passed\n";
+    return 0;
+}
+
+int main() {
+    std::cout << "Running C++ Vector Tests...\n\n";
+    
+    if (test_construction() != 0) return 1;
+    if (test_push_pop() != 0) return 1;
+    if (test_element_access() != 0) return 1;
+    if (test_iterators() != 0) return 1;
+    if (test_modification() != 0) return 1;
+    if (test_capacity() != 0) return 1;
+    if (test_comparison() != 0) return 1;
+    if (test_assignment() != 0) return 1;
+    if (test_swap() != 0) return 1;
+    if (test_stl_algorithms() != 0) return 1;
+    if (test_complex_types() != 0) return 1;
+    
+    std::cout << "\n? All C++ tests passed!\n";
+    return 0;
+}
