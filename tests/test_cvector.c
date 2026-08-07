@@ -172,6 +172,73 @@ int test_struct_storage(void) {
     return 0;
 }
 
+int test_invalid_arguments_and_empty_vector(void) {
+    int value = 42;
+
+    assert(cvector_create(0) == NULL);
+    assert(cvector_create_with_capacity(sizeof(int), 0) == NULL);
+    cvector_destroy(NULL);
+    assert(cvector_size(NULL) == 0);
+    assert(cvector_capacity(NULL) == 0);
+    assert(cvector_is_empty(NULL));
+    assert(cvector_data(NULL) == NULL);
+    assert(cvector_at(NULL, 0) == NULL);
+    assert(cvector_front(NULL) == NULL);
+    assert(cvector_back(NULL) == NULL);
+    assert(cvector_push_back(NULL, &value) == -1);
+    assert(cvector_pop_back(NULL, &value) == -1);
+    assert(cvector_reserve(NULL, 20) == -1);
+    assert(cvector_resize(NULL, 1) == -1);
+    cvector_clear(NULL);
+    assert(cvector_insert(NULL, 0, &value) == -1);
+    assert(cvector_erase(NULL, 0) == -1);
+    assert(cvector_shrink_to_fit(NULL) == 0);
+
+    CVector *vec = cvector_create(sizeof(int));
+    assert(vec != NULL);
+    assert(cvector_push_back(vec, NULL) == -1);
+    assert(cvector_pop_back(vec, &value) == -1);
+    assert(cvector_at(vec, 0) == NULL);
+    assert(cvector_front(vec) == NULL);
+    assert(cvector_back(vec) == NULL);
+    assert(cvector_insert(vec, 1, &value) == -1);
+    assert(cvector_insert(vec, 0, NULL) == -1);
+    assert(cvector_erase(vec, 0) == -1);
+    cvector_destroy(vec);
+
+    printf("? test_invalid_arguments_and_empty_vector passed\n");
+    return 0;
+}
+
+int test_growth_and_boundary_modifications(void) {
+    CVector *vec = cvector_create_with_capacity(sizeof(int), 1);
+    assert(vec != NULL);
+
+    int first = 10;
+    int second = 20;
+    int zero = 0;
+    assert(cvector_push_back(vec, &first) == 0);
+    assert(cvector_push_back(vec, &second) == 0);
+    assert(cvector_capacity(vec) > 1);
+
+    assert(cvector_insert(vec, 0, &zero) == 0);
+    assert(*(int *)cvector_front(vec) == 0);
+    assert(cvector_erase(vec, cvector_size(vec) - 1) == 0);
+    assert(*(int *)cvector_back(vec) == 10);
+    assert(cvector_at(vec, cvector_size(vec)) == NULL);
+
+    assert(cvector_reserve(vec, cvector_capacity(vec)) == 0);
+    assert(cvector_pop_back(vec, NULL) == 0);
+    assert(cvector_pop_back(vec, NULL) == 0);
+    assert(cvector_is_empty(vec));
+    assert(cvector_shrink_to_fit(vec) == 0);
+    assert(cvector_capacity(vec) == 1);
+
+    cvector_destroy(vec);
+    printf("? test_growth_and_boundary_modifications passed\n");
+    return 0;
+}
+
 int main(void) {
     printf("Running CVector tests...\n\n");
     
@@ -184,6 +251,8 @@ int main(void) {
     if (test_clear() != 0) return 1;
     if (test_shrink_to_fit() != 0) return 1;
     if (test_struct_storage() != 0) return 1;
+    if (test_invalid_arguments_and_empty_vector() != 0) return 1;
+    if (test_growth_and_boundary_modifications() != 0) return 1;
     
     printf("\n? All tests passed!\n");
     return 0;

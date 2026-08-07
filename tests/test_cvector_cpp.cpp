@@ -340,6 +340,104 @@ int test_complex_types() {
     return 0;
 }
 
+int test_empty_access_and_iterator_operations() {
+    cvector::Vector<int> empty;
+    try {
+        empty.front();
+        assert(false);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        empty.back();
+        assert(false);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        empty.pop_back();
+        assert(false);
+    } catch (const std::out_of_range&) {
+    }
+
+    cvector::Vector<int>::iterator invalid;
+    try {
+        (void)*invalid;
+        assert(false);
+    } catch (const std::runtime_error&) {
+    }
+    try {
+        (void)invalid.operator->();
+        assert(false);
+    } catch (const std::runtime_error&) {
+    }
+
+    cvector::Vector<int>::const_iterator const_invalid;
+    try {
+        (void)*const_invalid;
+        assert(false);
+    } catch (const std::runtime_error&) {
+    }
+    try {
+        (void)const_invalid.operator->();
+        assert(false);
+    } catch (const std::runtime_error&) {
+    }
+
+    cvector::Vector<int> values{1, 2, 3};
+    auto it = values.begin();
+    assert(*it++ == 1);
+    assert(*it == 2);
+    assert(*++it == 3);
+    assert(*it-- == 3);
+    assert(*--it == 1);
+    it += 2;
+    assert(it[-1] == 2);
+    it -= 1;
+    assert(it == values.begin() + 1);
+    assert(it > values.begin());
+    assert(it >= values.begin());
+    assert(it <= values.end());
+
+    const cvector::Vector<int>& const_values = values;
+    auto cit = const_values.cbegin();
+    assert(*cit++ == 1);
+    assert(*++cit == 3);
+    assert(*cit-- == 3);
+    assert(*--cit == 1);
+    cit += 2;
+    assert(cit[-1] == 2);
+    cit -= 1;
+    assert(cit > const_values.cbegin());
+    assert(cit >= const_values.cbegin());
+    assert(cit <= const_values.cend());
+    assert(const_values.crbegin() != const_values.crend());
+    assert(*const_values.crbegin() == 3);
+    assert(const_values.data()[1] == 2);
+
+    std::cout << "? test_empty_access_and_iterator_operations passed\n";
+    return 0;
+}
+
+int test_range_and_initializer_list_insert(void) {
+    std::vector<int> source{4, 5, 6};
+    cvector::Vector<int> values(source.begin(), source.end());
+    assert(values.size() == 3);
+
+    auto inserted = values.insert(values.cbegin() + 1, {7, 8});
+    assert(*inserted == 7);
+    assert(values.size() == 5);
+    assert(values[0] == 4);
+    assert(values[1] == 7);
+    assert(values[2] == 8);
+
+    values = values;
+    assert(values.size() == 5);
+    values = std::move(values);
+    assert(values.size() == 5);
+
+    std::cout << "? test_range_and_initializer_list_insert passed\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running C++ Vector Tests...\n\n";
     
@@ -354,6 +452,8 @@ int main() {
     if (test_swap() != 0) return 1;
     if (test_stl_algorithms() != 0) return 1;
     if (test_complex_types() != 0) return 1;
+    if (test_empty_access_and_iterator_operations() != 0) return 1;
+    if (test_range_and_initializer_list_insert() != 0) return 1;
     
     std::cout << "\n? All C++ tests passed!\n";
     return 0;
