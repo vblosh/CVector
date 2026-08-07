@@ -473,6 +473,69 @@ int test_empty_copy_end_insert_and_moved_from_reuse(void) {
     return 0;
 }
 
+int test_adopt_and_copy_from_cvector(void) {
+    CVector *adopted_raw = cvector_create_with_capacity(sizeof(int), 4);
+    assert(adopted_raw != nullptr);
+    int one = 1;
+    int two = 2;
+    assert(cvector_push_back(adopted_raw, &one) == 0);
+    assert(cvector_push_back(adopted_raw, &two) == 0);
+    void *adopted_data = adopted_raw->data;
+
+    {
+        auto adopted = cvector::Vector<int>::adopt(adopted_raw);
+        assert(adopted.size() == 2);
+        assert(adopted[0] == 1);
+        assert(adopted[1] == 2);
+        assert(adopted.data() == adopted_data);
+        adopted[0] = 10;
+        assert(*(int *)adopted_data == 10);
+    }
+
+    CVector *source = cvector_create_with_capacity(sizeof(int), 4);
+    assert(source != nullptr);
+    assert(cvector_push_back(source, &one) == 0);
+    assert(cvector_push_back(source, &two) == 0);
+    {
+        auto copy = cvector::Vector<int>::copy_from(source);
+        assert(copy.size() == 2);
+        assert(copy.capacity() == source->capacity);
+        assert(copy.data() != source->data);
+        copy[0] = 99;
+        assert(*(int *)cvector_at(source, 0) == 1);
+    }
+    cvector_destroy(source);
+
+    bool threw = false;
+    try {
+        (void)cvector::Vector<int>::adopt(nullptr);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+
+    CVector wrong_element_size = {&one, 1, 1, sizeof(char)};
+    threw = false;
+    try {
+        (void)cvector::Vector<int>::copy_from(&wrong_element_size);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+
+    CVector invalid_metadata = {&one, 2, 1, sizeof(int)};
+    threw = false;
+    try {
+        (void)cvector::Vector<int>::adopt(&invalid_metadata);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+
+    std::cout << "? test_adopt_and_copy_from_cvector passed\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running C++ Vector Tests...\n\n";
     
@@ -490,6 +553,7 @@ int main() {
     if (test_empty_access_and_iterator_operations() != 0) return 1;
     if (test_range_and_initializer_list_insert() != 0) return 1;
     if (test_empty_copy_end_insert_and_moved_from_reuse() != 0) return 1;
+    if (test_adopt_and_copy_from_cvector() != 0) return 1;
     
     std::cout << "\n? All C++ tests passed!\n";
     return 0;

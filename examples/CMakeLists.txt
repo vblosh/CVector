@@ -12,3 +12,7 @@ target_link_libraries(example_structs cvector)
 add_executable(example_cpp_interface cpp_interface_example.cpp)
 target_link_libraries(example_cpp_interface cvector)
 set_target_properties(example_cpp_interface PROPERTIES LANGUAGE CXX)
+
+add_executable(example_basic_cpp basic_example.cpp)
+target_link_libraries(example_basic_cpp cvector)
+set_target_properties(example_basic_cpp PROPERTIES LANGUAGE CXX)

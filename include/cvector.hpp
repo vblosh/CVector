@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <initializer_list>
+#include <limits>
 #include <type_traits>
 
 /**
@@ -31,6 +32,27 @@ private:
                   "cvector::Vector requires a trivially destructible type");
 
     CVector *m_cvec;
+
+    struct AdoptTag {};
+
+    Vector(CVector *vec, AdoptTag) noexcept : m_cvec(vec) {}
+
+    static void validate_cvector(const CVector *vec) {
+        if (vec == nullptr) {
+            throw std::invalid_argument("CVector pointer is null");
+        }
+        if (vec->element_size != sizeof(T)) {
+            throw std::invalid_argument("CVector element size does not match T");
+        }
+        if (vec->capacity == 0 || vec->size > vec->capacity ||
+            vec->data == nullptr) {
+            throw std::invalid_argument("CVector has invalid storage metadata");
+        }
+        if (vec->capacity > std::numeric_limits<size_t>::max() /
+                                vec->element_size) {
+            throw std::invalid_argument("CVector allocation size overflows");
+        }
+    }
 
     void ensure_storage() {
         if (m_cvec == nullptr) {
@@ -57,6 +79,32 @@ public:
     using const_pointer = const T*;
 
     class ConstIterator;
+
+    /**
+     * @brief Takes ownership of an existing CVector without copying.
+     *
+     * On success, the caller must not use or destroy vec. If validation throws,
+     * ownership remains with the caller.
+     */
+    static Vector adopt(CVector *vec) {
+        validate_cvector(vec);
+        return Vector(vec, AdoptTag{});
+    }
+
+    /**
+     * @brief Creates an independent copy of an existing CVector.
+     *
+     * The caller retains ownership of vec.
+     */
+    static Vector copy_from(const CVector *vec) {
+        validate_cvector(vec);
+        Vector copy(vec->capacity);
+        for (size_t i = 0; i < vec->size; ++i) {
+            const T *element = static_cast<const T*>(cvector_at(vec, i));
+            copy.push_back(*element);
+        }
+        return copy;
+    }
 
     /**
      * @class Iterator

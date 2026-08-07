@@ -228,6 +228,13 @@ v1 = std::move(v2);
 
 // Initializer list assignment
 v1 = {5, 6, 7};
+
+// Copy an existing C vector (the caller retains ownership of raw)
+CVector *raw = cvector_create(sizeof(int));
+cvector::Vector<int> copied = cvector::Vector<int>::copy_from(raw);
+
+// Or adopt it (ownership transfers; do not use or destroy raw afterward)
+cvector::Vector<int> adopted = cvector::Vector<int>::adopt(raw);
 ```
 
 ### C++ API Reference
@@ -239,6 +246,8 @@ v1 = {5, 6, 7};
 - `Vector(Vector&& other)` - Move constructor
 - `Vector(std::initializer_list<T> init)` - Initializer list constructor
 - `Vector(InputIt first, InputIt last)` - Range constructor
+- `static Vector adopt(CVector* vec)` - Take ownership of an existing C vector
+- `static Vector copy_from(const CVector* vec)` - Copy an existing C vector
 
 #### Iterators
 - `iterator begin()` / `const_iterator begin() const` - Get begin iterator
