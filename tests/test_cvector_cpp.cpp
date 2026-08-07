@@ -431,10 +431,45 @@ int test_range_and_initializer_list_insert(void) {
 
     values = values;
     assert(values.size() == 5);
-    values = std::move(values);
-    assert(values.size() == 5);
-
     std::cout << "? test_range_and_initializer_list_insert passed\n";
+    return 0;
+}
+
+int test_empty_copy_end_insert_and_moved_from_reuse(void) {
+    cvector::Vector<int> empty;
+    cvector::Vector<int> empty_copy(empty);
+    assert(empty_copy.empty());
+
+    cvector::Vector<int> empty_list(std::initializer_list<int>{});
+    assert(empty_list.empty());
+
+    cvector::Vector<int> values{1, 2};
+    auto inserted = values.insert(values.end(), 3);
+    assert(inserted == values.end() - 1);
+    assert(values.back() == 3);
+
+    cvector::Vector<int> moved_to(std::move(values));
+    assert(moved_to.size() == 3);
+    assert(values.empty());
+    values.push_back(4);
+    assert(values.size() == 1);
+    assert(values.front() == 4);
+
+    cvector::Vector<int> moved_again(std::move(values));
+    values.insert(values.end(), 5);
+    assert(values.size() == 1);
+    assert(values[0] == 5);
+    assert(moved_again[0] == 4);
+
+    cvector::Vector<int> aliases{10, 20};
+    aliases.resize(5, aliases[1]);
+    assert(aliases[2] == 20);
+    assert(aliases[4] == 20);
+    aliases.insert(aliases.cbegin(), size_t(3), aliases[4]);
+    assert(aliases[0] == 20);
+    assert(aliases[2] == 20);
+
+    std::cout << "? test_empty_copy_end_insert_and_moved_from_reuse passed\n";
     return 0;
 }
 
@@ -454,6 +489,7 @@ int main() {
     if (test_complex_types() != 0) return 1;
     if (test_empty_access_and_iterator_operations() != 0) return 1;
     if (test_range_and_initializer_list_insert() != 0) return 1;
+    if (test_empty_copy_end_insert_and_moved_from_reuse() != 0) return 1;
     
     std::cout << "\n? All C++ tests passed!\n";
     return 0;

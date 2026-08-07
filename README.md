@@ -10,7 +10,7 @@ A high-performance, generic dynamic array container for C, similar to C++'s `std
 - **Efficient**: Uses exponential growth strategy for O(1) amortized push operations
 - **Type-Safe**: Element size specified at creation, memory-safe operations
 - **C11 Compatible**: Written in C11 with no external dependencies
-- **C++ Wrapper**: Full C++ template interface with STL-compatible iterators
+- **C++ Wrapper**: STL-style interface for trivially copyable value types
 - **Iterator Support**: Bidirectional and random access iterators for STL algorithms
 - **Well-Tested**: Comprehensive test suite included
 - **Examples**: Multiple examples demonstrating various use cases
@@ -128,6 +128,11 @@ cvector_destroy(strings);
 ## C++ Interface
 
 CVector also provides a modern C++ template wrapper with STL-compatible iterators, making it easy to use with C++ standard library algorithms.
+
+The wrapper intentionally accepts only trivially copyable and trivially
+destructible value types. Use `std::vector` for owning or non-trivial C++ types
+such as `std::string`, smart pointers, or classes with custom constructors and
+destructors.
 
 ### C++ Basic Example
 

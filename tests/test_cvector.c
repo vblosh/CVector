@@ -62,6 +62,7 @@ int test_reserve_capacity(void) {
     CVector *vec = cvector_create(sizeof(double));
     
     size_t initial_capacity = cvector_capacity(vec);
+    assert(initial_capacity > 0);
     assert(cvector_reserve(vec, 100) == 0);
     assert(cvector_capacity(vec) >= 100);
     assert(cvector_size(vec) == 0);
@@ -117,7 +118,7 @@ int test_clear(void) {
     CVector *vec = cvector_create(sizeof(char));
     
     for (int i = 0; i < 10; i++) {
-        char c = 'a' + i;
+        char c = (char)('a' + i);
         cvector_push_back(vec, &c);
     }
     
@@ -239,6 +240,31 @@ int test_growth_and_boundary_modifications(void) {
     return 0;
 }
 
+int test_aliasing_and_overflow_protection(void) {
+    CVector *vec = cvector_create_with_capacity(sizeof(int), 2);
+    assert(vec != NULL);
+    int first = 10;
+    int second = 20;
+    assert(cvector_push_back(vec, &first) == 0);
+    assert(cvector_push_back(vec, &second) == 0);
+
+    assert(cvector_push_back(vec, cvector_at(vec, 0)) == 0);
+    assert(*(int *)cvector_at(vec, 2) == 10);
+
+    assert(cvector_insert(vec, 0, cvector_at(vec, 1)) == 0);
+    assert(*(int *)cvector_at(vec, 0) == 20);
+    assert(*(int *)cvector_at(vec, 1) == 10);
+
+    assert(cvector_create_with_capacity(2, SIZE_MAX) == NULL);
+    size_t old_capacity = cvector_capacity(vec);
+    assert(cvector_reserve(vec, SIZE_MAX) == -1);
+    assert(cvector_capacity(vec) == old_capacity);
+
+    cvector_destroy(vec);
+    printf("? test_aliasing_and_overflow_protection passed\n");
+    return 0;
+}
+
 int main(void) {
     printf("Running CVector tests...\n\n");
     
@@ -253,6 +279,7 @@ int main(void) {
     if (test_struct_storage() != 0) return 1;
     if (test_invalid_arguments_and_empty_vector() != 0) return 1;
     if (test_growth_and_boundary_modifications() != 0) return 1;
+    if (test_aliasing_and_overflow_protection() != 0) return 1;
     
     printf("\n? All tests passed!\n");
     return 0;

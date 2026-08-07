@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <initializer_list>
+#include <type_traits>
 
 /**
  * @namespace cvector
@@ -24,7 +25,21 @@ namespace cvector {
 template <typename T>
 class Vector {
 private:
+    static_assert(std::is_trivially_copyable<T>::value,
+                  "cvector::Vector requires a trivially copyable type");
+    static_assert(std::is_trivially_destructible<T>::value,
+                  "cvector::Vector requires a trivially destructible type");
+
     CVector *m_cvec;
+
+    void ensure_storage() {
+        if (m_cvec == nullptr) {
+            m_cvec = cvector_create(sizeof(T));
+            if (m_cvec == nullptr) {
+                throw std::bad_alloc();
+            }
+        }
+    }
 
     // Helper function to get element at index without bounds checking
     T* get_at(size_t index) const {
@@ -40,6 +55,8 @@ public:
     using const_reference = const T&;
     using pointer = T*;
     using const_pointer = const T*;
+
+    class ConstIterator;
 
     /**
      * @class Iterator
@@ -155,6 +172,7 @@ public:
         // Friend declarations for reverse iterator access
         template <typename U>
         friend class Vector;
+        friend class ConstIterator;
     };
 
     /**
@@ -176,7 +194,7 @@ public:
         // Constructors
         ConstIterator() : m_ptr(nullptr) {}
         explicit ConstIterator(const T* ptr) : m_ptr(ptr) {}
-        ConstIterator(const Iterator& it) : m_ptr(&(*it)) {}
+        ConstIterator(const Iterator& it) : m_ptr(it.m_ptr) {}
 
         // Dereference operators
         reference operator*() const {
@@ -295,7 +313,8 @@ public:
      * @brief Constructor with initial capacity
      */
     explicit Vector(size_t capacity) 
-        : m_cvec(cvector_create_with_capacity(sizeof(T), capacity)) {
+        : m_cvec(cvector_create_with_capacity(sizeof(T),
+                                              std::max<size_t>(capacity, 1))) {
         if (m_cvec == nullptr) {
             throw std::bad_alloc();
         }
@@ -305,7 +324,8 @@ public:
      * @brief Copy constructor - creates a copy of another vector
      */
     Vector(const Vector& other) 
-        : m_cvec(cvector_create_with_capacity(sizeof(T), other.size())) {
+        : m_cvec(cvector_create_with_capacity(sizeof(T),
+                                              std::max<size_t>(other.size(), 1))) {
         if (m_cvec == nullptr) {
             throw std::bad_alloc();
         }
@@ -325,7 +345,8 @@ public:
      * @brief Constructor from initializer list
      */
     Vector(std::initializer_list<T> init) 
-        : m_cvec(cvector_create_with_capacity(sizeof(T), init.size())) {
+        : m_cvec(cvector_create_with_capacity(sizeof(T),
+                                              std::max<size_t>(init.size(), 1))) {
         if (m_cvec == nullptr) {
             throw std::bad_alloc();
         }
@@ -340,8 +361,14 @@ public:
     template <typename InputIt>
     Vector(InputIt first, InputIt last)
         : Vector() {
-        for (; first != last; ++first) {
-            push_back(*first);
+        try {
+            for (; first != last; ++first) {
+                push_back(*first);
+            }
+        } catch (...) {
+            cvector_destroy(m_cvec);
+            m_cvec = nullptr;
+            throw;
         }
     }
 
@@ -418,14 +445,16 @@ public:
      * @brief Returns iterator to end
      */
     iterator end() {
-        return iterator(static_cast<T*>(cvector_data(m_cvec)) + size());
+        T* first = static_cast<T*>(cvector_data(m_cvec));
+        return iterator(first == nullptr ? nullptr : first + size());
     }
 
     /**
      * @brief Returns const iterator to end
      */
     const_iterator end() const {
-        return const_iterator(static_cast<const T*>(cvector_data(m_cvec)) + size());
+        const T* first = static_cast<const T*>(cvector_data(m_cvec));
+        return const_iterator(first == nullptr ? nullptr : first + size());
     }
 
     /**
@@ -598,6 +627,7 @@ public:
      * @brief Reserves capacity
      */
     void reserve(size_t new_capacity) {
+        ensure_storage();
         if (cvector_reserve(m_cvec, new_capacity) != 0) {
             throw std::bad_alloc();
         }
@@ -607,6 +637,7 @@ public:
      * @brief Resizes vector
      */
     void resize(size_t new_size) {
+        ensure_storage();
         if (cvector_resize(m_cvec, new_size) != 0) {
             throw std::bad_alloc();
         }
@@ -616,13 +647,15 @@ public:
      * @brief Resizes vector with fill value
      */
     void resize(size_t new_size, const T& value) {
+        T value_copy = value;
+        ensure_storage();
         size_t old_size = size();
         if (cvector_resize(m_cvec, new_size) != 0) {
             throw std::bad_alloc();
         }
         // Fill new elements with value
         for (size_t i = old_size; i < new_size; ++i) {
-            (*this)[i] = value;
+            (*this)[i] = value_copy;
         }
     }
 
@@ -630,6 +663,7 @@ public:
      * @brief Shrinks capacity to match size
      */
     void shrink_to_fit() {
+        ensure_storage();
         if (cvector_shrink_to_fit(m_cvec) != 0) {
             throw std::bad_alloc();
         }
@@ -650,6 +684,7 @@ public:
      * @brief Pushes element to back
      */
     void push_back(const T& value) {
+        ensure_storage();
         if (cvector_push_back(m_cvec, &value) != 0) {
             throw std::bad_alloc();
         }
@@ -676,7 +711,9 @@ public:
      * @brief Inserts element at position
      */
     iterator insert(const_iterator pos, const T& value) {
-        size_t index = std::distance(cbegin(), pos);
+        bool was_moved_from = (m_cvec == nullptr);
+        ensure_storage();
+        size_t index = was_moved_from ? 0 : std::distance(cbegin(), pos);
         if (cvector_insert(m_cvec, index, &value) != 0) {
             throw std::bad_alloc();
         }
@@ -694,9 +731,12 @@ public:
      * @brief Inserts count copies of value
      */
     iterator insert(const_iterator pos, size_t count, const T& value) {
-        size_t index = std::distance(cbegin(), pos);
+        T value_copy = value;
+        bool was_moved_from = (m_cvec == nullptr);
+        ensure_storage();
+        size_t index = was_moved_from ? 0 : std::distance(cbegin(), pos);
         for (size_t i = 0; i < count; ++i) {
-            if (cvector_insert(m_cvec, index + i, &value) != 0) {
+            if (cvector_insert(m_cvec, index + i, &value_copy) != 0) {
                 throw std::bad_alloc();
             }
         }
@@ -707,7 +747,9 @@ public:
      * @brief Inserts from initializer list
      */
     iterator insert(const_iterator pos, std::initializer_list<T> init) {
-        size_t index = std::distance(cbegin(), pos);
+        bool was_moved_from = (m_cvec == nullptr);
+        ensure_storage();
+        size_t index = was_moved_from ? 0 : std::distance(cbegin(), pos);
         size_t count = 0;
         for (const auto& elem : init) {
             if (cvector_insert(m_cvec, index + count, &elem) != 0) {

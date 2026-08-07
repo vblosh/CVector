@@ -1,16 +1,54 @@
 #include "cvector.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #define INITIAL_CAPACITY 10
-#define GROWTH_FACTOR 1.5f
+static int allocation_size(size_t count, size_t element_size, size_t *bytes) {
+    if (element_size != 0 && count > SIZE_MAX / element_size) {
+        return -1;
+    }
+    *bytes = count * element_size;
+    return 0;
+}
+
+static int next_capacity(size_t capacity, size_t *result) {
+    size_t increment = capacity / 2;
+    if (increment == 0) {
+        increment = 1;
+    }
+    if (capacity > SIZE_MAX - increment) {
+        return -1;
+    }
+    *result = capacity + increment;
+    return 0;
+}
+
+static int element_offset(const CVector *vec, const void *element,
+                          size_t *offset) {
+    size_t bytes;
+    if (allocation_size(vec->size, vec->element_size, &bytes) != 0) {
+        return 0;
+    }
+    uintptr_t start = (uintptr_t)vec->data;
+    uintptr_t address = (uintptr_t)element;
+    if (address < start || address - start >= bytes) {
+        return 0;
+    }
+    *offset = (size_t)(address - start);
+    return 1;
+}
 
 CVector* cvector_create(size_t element_size) {
     return cvector_create_with_capacity(element_size, INITIAL_CAPACITY);
 }
 
 CVector* cvector_create_with_capacity(size_t element_size, size_t capacity) {
+    size_t bytes;
     if (element_size == 0 || capacity == 0) {
+        return NULL;
+    }
+    if (allocation_size(capacity, element_size, &bytes) != 0) {
         return NULL;
     }
 
@@ -19,7 +57,7 @@ CVector* cvector_create_with_capacity(size_t element_size, size_t capacity) {
         return NULL;
     }
 
-    vec->data = malloc(element_size * capacity);
+    vec->data = malloc(bytes);
     if (vec->data == NULL) {
         free(vec);
         return NULL;
@@ -61,13 +99,16 @@ int cvector_push_back(CVector *vec, const void *element) {
     }
 
     if (vec->size >= vec->capacity) {
-        size_t new_capacity = (size_t)(vec->capacity * GROWTH_FACTOR);
-        if (new_capacity <= vec->capacity) {
-            new_capacity = vec->capacity + 1;
-        }
+        size_t new_capacity;
+        size_t offset;
+        int aliases_data = element_offset(vec, element, &offset);
 
-        if (cvector_reserve(vec, new_capacity) != 0) {
+        if (next_capacity(vec->capacity, &new_capacity) != 0 ||
+            cvector_reserve(vec, new_capacity) != 0) {
             return -1;
+        }
+        if (aliases_data) {
+            element = (uint8_t *)vec->data + offset;
         }
     }
 
@@ -86,7 +127,7 @@ int cvector_pop_back(CVector *vec, void *out_element) {
     vec->size--;
     if (out_element != NULL) {
         void *src = (uint8_t *)vec->data + (vec->size * vec->element_size);
-        memcpy(out_element, src, vec->element_size);
+        memmove(out_element, src, vec->element_size);
     }
 
     return 0;
@@ -113,6 +154,7 @@ void* cvector_back(const CVector *vec) {
 }
 
 int cvector_reserve(CVector *vec, size_t new_capacity) {
+    size_t bytes;
     if (vec == NULL) {
         return -1;
     }
@@ -120,8 +162,11 @@ int cvector_reserve(CVector *vec, size_t new_capacity) {
     if (new_capacity <= vec->capacity) {
         return 0;
     }
+    if (allocation_size(new_capacity, vec->element_size, &bytes) != 0) {
+        return -1;
+    }
 
-    void *new_data = realloc(vec->data, new_capacity * vec->element_size);
+    void *new_data = realloc(vec->data, bytes);
     if (new_data == NULL) {
         return -1;
     }
@@ -160,17 +205,27 @@ void cvector_clear(CVector *vec) {
 }
 
 int cvector_insert(CVector *vec, size_t index, const void *element) {
+    void *element_copy = NULL;
     if (vec == NULL || element == NULL || index > vec->size) {
         return -1;
     }
 
-    if (vec->size >= vec->capacity) {
-        size_t new_capacity = (size_t)(vec->capacity * GROWTH_FACTOR);
-        if (new_capacity <= vec->capacity) {
-            new_capacity = vec->capacity + 1;
+    size_t offset;
+    if (element_offset(vec, element, &offset)) {
+        element_copy = malloc(vec->element_size);
+        if (element_copy == NULL) {
+            return -1;
         }
+        memcpy(element_copy, element, vec->element_size);
+        element = element_copy;
+    }
 
-        if (cvector_reserve(vec, new_capacity) != 0) {
+    if (vec->size >= vec->capacity) {
+        size_t new_capacity;
+
+        if (next_capacity(vec->capacity, &new_capacity) != 0 ||
+            cvector_reserve(vec, new_capacity) != 0) {
+            free(element_copy);
             return -1;
         }
     }
@@ -185,6 +240,7 @@ int cvector_insert(CVector *vec, size_t index, const void *element) {
     void *dest = (uint8_t *)vec->data + (index * vec->element_size);
     memcpy(dest, element, vec->element_size);
     vec->size++;
+    free(element_copy);
 
     return 0;
 }
