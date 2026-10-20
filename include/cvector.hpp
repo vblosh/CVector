@@ -2,13 +2,18 @@
 #define CVECTOR_HPP
 
 #include "cvector.h"
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <memory>
+#include <new>
 #include <stdexcept>
 #include <algorithm>
 #include <initializer_list>
 #include <limits>
 #include <type_traits>
+#include <utility>
 
 /**
  * @namespace cvector
@@ -25,17 +30,55 @@ namespace cvector {
  */
 template <typename T>
 class Vector {
+public:
+    class ConstIterator;
+
 private:
     static_assert(std::is_trivially_copyable<T>::value,
                   "cvector::Vector requires a trivially copyable type");
     static_assert(std::is_trivially_destructible<T>::value,
                   "cvector::Vector requires a trivially destructible type");
+    static_assert(alignof(T) <= alignof(std::max_align_t),
+                  "cvector::Vector requires a type aligned no more strictly "
+                  "than std::max_align_t");
 
     CVector *m_cvec;
 
     struct AdoptTag {};
+    struct CapacityTag {};
 
     Vector(CVector *vec, AdoptTag) noexcept : m_cvec(vec) {}
+
+    Vector(size_t capacity, CapacityTag)
+        : m_cvec(cvector_create_with_capacity(sizeof(T),
+                                              std::max<size_t>(capacity, 1))) {
+        if (m_cvec == nullptr) {
+            throw std::bad_alloc();
+        }
+    }
+
+    static size_t max_size_value() noexcept {
+        return std::numeric_limits<size_t>::max() / sizeof(T);
+    }
+
+    static size_t checked_capacity(size_t count) {
+        if (count > max_size_value()) {
+            throw std::length_error("Vector capacity exceeds max_size");
+        }
+        return std::max<size_t>(count, 1);
+    }
+
+    static void copy_elements(T *dest, const T *source, size_t count) {
+        if (count != 0) {
+            std::memcpy(dest, source, count * sizeof(T));
+        }
+    }
+
+    static void fill_elements(T *dest, size_t count, const T& value) {
+        for (size_t i = 0; i < count; ++i) {
+            std::memcpy(dest + i, &value, sizeof(T));
+        }
+    }
 
     static void validate_cvector(const CVector *vec) {
         if (vec == nullptr) {
@@ -63,9 +106,41 @@ private:
         }
     }
 
-    // Helper function to get element at index without bounds checking
-    T* get_at(size_t index) const {
-        return static_cast<T*>(cvector_at(m_cvec, index));
+    // Helpers to get an element without bounds checking. The const overload
+    // preserves const correctness instead of laundering it away.
+    T* get_at(size_t index) {
+        return static_cast<T*>(m_cvec->data) + index;
+    }
+
+    const T* get_at(size_t index) const {
+        return static_cast<const T*>(m_cvec->data) + index;
+    }
+
+    size_t index_of(const ConstIterator& pos) const {
+        if (m_cvec == nullptr) {
+            if (pos.m_ptr == nullptr) {
+                return 0;
+            }
+            throw std::out_of_range("Iterator does not belong to this vector");
+        }
+        if (pos.m_ptr == nullptr) {
+            throw std::out_of_range("Iterator does not belong to this vector");
+        }
+
+        std::uintptr_t begin =
+            reinterpret_cast<std::uintptr_t>(m_cvec->data);
+        std::uintptr_t address =
+            reinterpret_cast<std::uintptr_t>(pos.m_ptr);
+        if (address < begin) {
+            throw std::out_of_range("Iterator does not belong to this vector");
+        }
+
+        size_t byte_offset = static_cast<size_t>(address - begin);
+        size_t byte_size = m_cvec->size * sizeof(T);
+        if (byte_offset > byte_size || byte_offset % sizeof(T) != 0) {
+            throw std::out_of_range("Iterator does not belong to this vector");
+        }
+        return byte_offset / sizeof(T);
     }
 
 public:
@@ -77,8 +152,6 @@ public:
     using const_reference = const T&;
     using pointer = T*;
     using const_pointer = const T*;
-
-    class ConstIterator;
 
     /**
      * @brief Takes ownership of an existing CVector without copying.
@@ -98,11 +171,11 @@ public:
      */
     static Vector copy_from(const CVector *vec) {
         validate_cvector(vec);
-        Vector copy(vec->capacity);
-        for (size_t i = 0; i < vec->size; ++i) {
-            const T *element = static_cast<const T*>(cvector_at(vec, i));
-            copy.push_back(*element);
-        }
+        Vector copy(vec->capacity, CapacityTag{});
+        copy_elements(static_cast<T*>(copy.m_cvec->data),
+                      static_cast<const T*>(cvector_data_const(vec)),
+                      vec->size);
+        copy.m_cvec->size = vec->size;
         return copy;
     }
 
@@ -142,6 +215,9 @@ public:
         }
 
         reference operator[](difference_type n) const {
+            if (m_ptr == nullptr) {
+                throw std::runtime_error("Dereferencing invalid iterator");
+            }
             return *(m_ptr + n);
         }
 
@@ -188,33 +264,65 @@ public:
             return Iterator(m_ptr - n);
         }
 
-        difference_type operator-(const Iterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        difference_type operator-(const U& other) const {
             return m_ptr - other.m_ptr;
         }
 
         // Comparison operators
-        bool operator==(const Iterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator==(const U& other) const {
             return m_ptr == other.m_ptr;
         }
 
-        bool operator!=(const Iterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator!=(const U& other) const {
             return m_ptr != other.m_ptr;
         }
 
-        bool operator<(const Iterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator<(const U& other) const {
             return m_ptr < other.m_ptr;
         }
 
-        bool operator<=(const Iterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator<=(const U& other) const {
             return m_ptr <= other.m_ptr;
         }
 
-        bool operator>(const Iterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator>(const U& other) const {
             return m_ptr > other.m_ptr;
         }
 
-        bool operator>=(const Iterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator>=(const U& other) const {
             return m_ptr >= other.m_ptr;
+        }
+
+        friend Iterator operator+(difference_type n, const Iterator& it) {
+            return it + n;
         }
 
         // Friend declarations for reverse iterator access
@@ -260,6 +368,9 @@ public:
         }
 
         reference operator[](difference_type n) const {
+            if (m_ptr == nullptr) {
+                throw std::runtime_error("Dereferencing invalid iterator");
+            }
             return *(m_ptr + n);
         }
 
@@ -306,37 +417,71 @@ public:
             return ConstIterator(m_ptr - n);
         }
 
-        difference_type operator-(const ConstIterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        difference_type operator-(const U& other) const {
             return m_ptr - other.m_ptr;
         }
 
         // Comparison operators
-        bool operator==(const ConstIterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator==(const U& other) const {
             return m_ptr == other.m_ptr;
         }
 
-        bool operator!=(const ConstIterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator!=(const U& other) const {
             return m_ptr != other.m_ptr;
         }
 
-        bool operator<(const ConstIterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator<(const U& other) const {
             return m_ptr < other.m_ptr;
         }
 
-        bool operator<=(const ConstIterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator<=(const U& other) const {
             return m_ptr <= other.m_ptr;
         }
 
-        bool operator>(const ConstIterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator>(const U& other) const {
             return m_ptr > other.m_ptr;
         }
 
-        bool operator>=(const ConstIterator& other) const {
+        template <typename U,
+                  std::enable_if_t<std::is_same<U, Iterator>::value ||
+                                       std::is_same<U, ConstIterator>::value,
+                                   int> = 0>
+        bool operator>=(const U& other) const {
             return m_ptr >= other.m_ptr;
+        }
+
+        friend ConstIterator operator+(difference_type n,
+                                       const ConstIterator& it) {
+            return it + n;
         }
 
         template <typename U>
         friend class Vector;
+        friend class Iterator;
     };
 
     using iterator = Iterator;
@@ -358,28 +503,53 @@ public:
     }
 
     /**
-     * @brief Constructor with initial capacity
+     * @brief Constructs count value-initialized elements
      */
-    explicit Vector(size_t capacity) 
+    explicit Vector(size_t count)
         : m_cvec(cvector_create_with_capacity(sizeof(T),
-                                              std::max<size_t>(capacity, 1))) {
+                                              checked_capacity(count))) {
         if (m_cvec == nullptr) {
             throw std::bad_alloc();
         }
+        try {
+            T *dest = static_cast<T*>(m_cvec->data);
+            for (size_t i = 0; i < count; ++i) {
+                T value{};
+                fill_elements(dest + i, 1, value);
+            }
+            m_cvec->size = count;
+        } catch (...) {
+            cvector_destroy(m_cvec);
+            m_cvec = nullptr;
+            throw;
+        }
+    }
+
+    /**
+     * @brief Constructs count copies of value
+     */
+    Vector(size_t count, const T& value)
+        : m_cvec(cvector_create_with_capacity(sizeof(T),
+                                              checked_capacity(count))) {
+        if (m_cvec == nullptr) {
+            throw std::bad_alloc();
+        }
+        fill_elements(static_cast<T*>(m_cvec->data), count, value);
+        m_cvec->size = count;
     }
 
     /**
      * @brief Copy constructor - creates a copy of another vector
      */
-    Vector(const Vector& other) 
+    Vector(const Vector& other)
         : m_cvec(cvector_create_with_capacity(sizeof(T),
-                                              std::max<size_t>(other.size(), 1))) {
+                                              checked_capacity(other.size()))) {
         if (m_cvec == nullptr) {
             throw std::bad_alloc();
         }
-        for (const auto& elem : other) {
-            push_back(elem);
-        }
+        copy_elements(static_cast<T*>(m_cvec->data), other.data(),
+                      other.size());
+        m_cvec->size = other.size();
     }
 
     /**
@@ -392,21 +562,22 @@ public:
     /**
      * @brief Constructor from initializer list
      */
-    Vector(std::initializer_list<T> init) 
+    Vector(std::initializer_list<T> init)
         : m_cvec(cvector_create_with_capacity(sizeof(T),
-                                              std::max<size_t>(init.size(), 1))) {
+                                              checked_capacity(init.size()))) {
         if (m_cvec == nullptr) {
             throw std::bad_alloc();
         }
-        for (const auto& elem : init) {
-            push_back(elem);
-        }
+        copy_elements(static_cast<T*>(m_cvec->data), init.begin(),
+                      init.size());
+        m_cvec->size = init.size();
     }
 
     /**
      * @brief Constructor from range
      */
-    template <typename InputIt>
+    template <typename InputIt,
+              std::enable_if_t<!std::is_integral<InputIt>::value, int> = 0>
     Vector(InputIt first, InputIt last)
         : Vector() {
         try {
@@ -479,7 +650,8 @@ public:
      * @brief Returns const iterator to beginning
      */
     const_iterator begin() const {
-        return const_iterator(static_cast<const T*>(cvector_data(m_cvec)));
+        return const_iterator(
+            static_cast<const T*>(cvector_data_const(m_cvec)));
     }
 
     /**
@@ -501,7 +673,7 @@ public:
      * @brief Returns const iterator to end
      */
     const_iterator end() const {
-        const T* first = static_cast<const T*>(cvector_data(m_cvec));
+        const T* first = static_cast<const T*>(cvector_data_const(m_cvec));
         return const_iterator(first == nullptr ? nullptr : first + size());
     }
 
@@ -609,7 +781,7 @@ public:
         if (empty()) {
             throw std::out_of_range("Vector is empty");
         }
-        return *static_cast<const T*>(cvector_front(m_cvec));
+        return *static_cast<const T*>(cvector_front_const(m_cvec));
     }
 
     /**
@@ -629,7 +801,7 @@ public:
         if (empty()) {
             throw std::out_of_range("Vector is empty");
         }
-        return *static_cast<const T*>(cvector_back(m_cvec));
+        return *static_cast<const T*>(cvector_back_const(m_cvec));
     }
 
     /**
@@ -643,7 +815,7 @@ public:
      * @brief Returns const pointer to underlying data
      */
     const_pointer data() const {
-        return static_cast<const T*>(cvector_data(m_cvec));
+        return static_cast<const T*>(cvector_data_const(m_cvec));
     }
 
     // ============================================================
@@ -676,6 +848,9 @@ public:
      */
     void reserve(size_t new_capacity) {
         ensure_storage();
+        if (new_capacity > max_size_value()) {
+            throw std::length_error("Vector capacity exceeds max_size");
+        }
         if (cvector_reserve(m_cvec, new_capacity) != 0) {
             throw std::bad_alloc();
         }
@@ -686,8 +861,19 @@ public:
      */
     void resize(size_t new_size) {
         ensure_storage();
+        if (new_size > max_size_value()) {
+            throw std::length_error("Vector size exceeds max_size");
+        }
+        size_t old_size = size();
         if (cvector_resize(m_cvec, new_size) != 0) {
             throw std::bad_alloc();
+        }
+        if (new_size > old_size) {
+            T *dest = static_cast<T*>(m_cvec->data);
+            for (size_t i = old_size; i < new_size; ++i) {
+                T value{};
+                fill_elements(dest + i, 1, value);
+            }
         }
     }
 
@@ -697,13 +883,16 @@ public:
     void resize(size_t new_size, const T& value) {
         T value_copy = value;
         ensure_storage();
+        if (new_size > max_size_value()) {
+            throw std::length_error("Vector size exceeds max_size");
+        }
         size_t old_size = size();
         if (cvector_resize(m_cvec, new_size) != 0) {
             throw std::bad_alloc();
         }
-        // Fill new elements with value
-        for (size_t i = old_size; i < new_size; ++i) {
-            (*this)[i] = value_copy;
+        if (new_size > old_size) {
+            fill_elements(static_cast<T*>(m_cvec->data) + old_size,
+                          new_size - old_size, value_copy);
         }
     }
 
@@ -733,6 +922,9 @@ public:
      */
     void push_back(const T& value) {
         ensure_storage();
+        if (size() >= max_size_value()) {
+            throw std::length_error("Vector size exceeds max_size");
+        }
         if (cvector_push_back(m_cvec, &value) != 0) {
             throw std::bad_alloc();
         }
@@ -759,10 +951,13 @@ public:
      * @brief Inserts element at position
      */
     iterator insert(const_iterator pos, const T& value) {
-        bool was_moved_from = (m_cvec == nullptr);
+        size_t index = index_of(pos);
         ensure_storage();
-        size_t index = was_moved_from ? 0 : std::distance(cbegin(), pos);
-        if (cvector_insert(m_cvec, index, &value) != 0) {
+        if (size() >= max_size_value()) {
+            throw std::length_error("Vector size exceeds max_size");
+        }
+        T value_copy = value;
+        if (cvector_insert(m_cvec, index, &value_copy) != 0) {
             throw std::bad_alloc();
         }
         return begin() + index;
@@ -779,14 +974,15 @@ public:
      * @brief Inserts count copies of value
      */
     iterator insert(const_iterator pos, size_t count, const T& value) {
-        T value_copy = value;
-        bool was_moved_from = (m_cvec == nullptr);
+        size_t index = index_of(pos);
         ensure_storage();
-        size_t index = was_moved_from ? 0 : std::distance(cbegin(), pos);
-        for (size_t i = 0; i < count; ++i) {
-            if (cvector_insert(m_cvec, index + i, &value_copy) != 0) {
-                throw std::bad_alloc();
-            }
+        if (count > max_size_value() - size()) {
+            throw std::length_error("Vector size exceeds max_size");
+        }
+        T value_copy = value;
+        if (count != 0 &&
+            cvector_insert_n(m_cvec, index, &value_copy, count) != 0) {
+            throw std::bad_alloc();
         }
         return begin() + index;
     }
@@ -795,15 +991,15 @@ public:
      * @brief Inserts from initializer list
      */
     iterator insert(const_iterator pos, std::initializer_list<T> init) {
-        bool was_moved_from = (m_cvec == nullptr);
+        size_t index = index_of(pos);
         ensure_storage();
-        size_t index = was_moved_from ? 0 : std::distance(cbegin(), pos);
-        size_t count = 0;
-        for (const auto& elem : init) {
-            if (cvector_insert(m_cvec, index + count, &elem) != 0) {
-                throw std::bad_alloc();
-            }
-            ++count;
+        if (init.size() > max_size_value() - size()) {
+            throw std::length_error("Vector size exceeds max_size");
+        }
+        if (init.size() != 0 &&
+            cvector_insert_array(m_cvec, index, init.begin(),
+                                 init.size()) != 0) {
+            throw std::bad_alloc();
         }
         return begin() + index;
     }
@@ -812,9 +1008,12 @@ public:
      * @brief Erases element at position
      */
     iterator erase(const_iterator pos) {
-        size_t index = std::distance(cbegin(), pos);
+        size_t index = index_of(pos);
+        if (index >= size()) {
+            throw std::out_of_range("Cannot erase end iterator");
+        }
         if (cvector_erase(m_cvec, index) != 0) {
-            throw std::runtime_error("Failed to erase element");
+            throw std::out_of_range("Cannot erase element");
         }
         return begin() + index;
     }
@@ -823,14 +1022,26 @@ public:
      * @brief Erases range [first, last)
      */
     iterator erase(const_iterator first, const_iterator last) {
-        size_t index = std::distance(cbegin(), first);
-        size_t count = std::distance(first, last);
-        for (size_t i = 0; i < count; ++i) {
-            if (cvector_erase(m_cvec, index) != 0) {
-                throw std::runtime_error("Failed to erase element");
+        if (m_cvec == nullptr) {
+            if (first.m_ptr != nullptr || last.m_ptr != nullptr) {
+                throw std::out_of_range(
+                    "Iterator does not belong to this vector");
             }
+            return begin();
         }
-        return begin() + index;
+
+        size_t first_index = index_of(first);
+        size_t last_index = index_of(last);
+        if (last_index < first_index) {
+            throw std::out_of_range("Invalid erase range");
+        }
+
+        size_t count = last_index - first_index;
+        if (count != 0 &&
+            cvector_erase_range(m_cvec, first_index, count) != 0) {
+            throw std::out_of_range("Invalid erase range");
+        }
+        return begin() + first_index;
     }
 
     // ============================================================
@@ -873,7 +1084,7 @@ public:
      * @brief Less than or equal operator
      */
     bool operator<=(const Vector& other) const {
-        return *this < other || *this == other;
+        return !(other < *this);
     }
 
     /**
@@ -887,7 +1098,7 @@ public:
      * @brief Greater than or equal operator
      */
     bool operator>=(const Vector& other) const {
-        return other <= *this;
+        return !(*this < other);
     }
 };
 
@@ -901,54 +1112,6 @@ public:
 template <typename T>
 void swap(Vector<T>& lhs, Vector<T>& rhs) noexcept {
     lhs.swap(rhs);
-}
-
-/**
- * @brief Equality comparison
- */
-template <typename T>
-bool operator==(const Vector<T>& lhs, const Vector<T>& rhs) {
-    return lhs == rhs;
-}
-
-/**
- * @brief Inequality comparison
- */
-template <typename T>
-bool operator!=(const Vector<T>& lhs, const Vector<T>& rhs) {
-    return lhs != rhs;
-}
-
-/**
- * @brief Less than comparison
- */
-template <typename T>
-bool operator<(const Vector<T>& lhs, const Vector<T>& rhs) {
-    return lhs < rhs;
-}
-
-/**
- * @brief Less than or equal comparison
- */
-template <typename T>
-bool operator<=(const Vector<T>& lhs, const Vector<T>& rhs) {
-    return lhs <= rhs;
-}
-
-/**
- * @brief Greater than comparison
- */
-template <typename T>
-bool operator>(const Vector<T>& lhs, const Vector<T>& rhs) {
-    return lhs > rhs;
-}
-
-/**
- * @brief Greater than or equal comparison
- */
-template <typename T>
-bool operator>=(const Vector<T>& lhs, const Vector<T>& rhs) {
-    return lhs >= rhs;
 }
 
 } // namespace cvector

@@ -204,8 +204,11 @@ std::sort(vec.begin(), vec.end());
 // Default constructor
 cvector::Vector<int> v1;
 
-// With initial capacity
+// With a value-initialized element count
 cvector::Vector<int> v2(100);
+
+// With a count and a fill value
+cvector::Vector<int> v7(100, 42);
 
 // Copy constructor
 cvector::Vector<int> v3 = v1;
@@ -241,7 +244,8 @@ cvector::Vector<int> adopted = cvector::Vector<int>::adopt(raw);
 
 #### Constructors
 - `Vector()` - Default constructor
-- `Vector(size_t capacity)` - Constructor with capacity
+- `Vector(size_t count)` - Construct `count` value-initialized elements
+- `Vector(size_t count, const T& value)` - Construct `count` copies of `value`
 - `Vector(const Vector& other)` - Copy constructor
 - `Vector(Vector&& other)` - Move constructor
 - `Vector(std::initializer_list<T> init)` - Initializer list constructor
@@ -304,21 +308,28 @@ cvector::Vector<int> adopted = cvector::Vector<int>::adopt(raw);
 - `int cvector_is_empty(const CVector *vec)` - Check if vector is empty
 - `int cvector_reserve(CVector *vec, size_t new_capacity)` - Reserve capacity
 - `int cvector_resize(CVector *vec, size_t new_size)` - Resize vector
-- `int cvector_shrink_to_fit(CVector *vec)` - Shrink capacity to size
+- `int cvector_shrink_to_fit(CVector *vec)` - Shrink capacity to size (empty vectors keep capacity 1)
 
 ### Element Access
 
-- `void* cvector_at(const CVector *vec, size_t index)` - Get element at index
-- `void* cvector_front(const CVector *vec)` - Get first element
-- `void* cvector_back(const CVector *vec)` - Get last element
-- `void* cvector_data(const CVector *vec)` - Get pointer to data array
+- `void* cvector_at(CVector *vec, size_t index)` - Get element at index
+- `const void* cvector_at_const(const CVector *vec, size_t index)` - Read-only element access
+- `void* cvector_front(CVector *vec)` - Get first element
+- `const void* cvector_front_const(const CVector *vec)` - Read-only first element access
+- `void* cvector_back(CVector *vec)` - Get last element
+- `const void* cvector_back_const(const CVector *vec)` - Read-only last element access
+- `void* cvector_data(CVector *vec)` - Get pointer to data array
+- `const void* cvector_data_const(const CVector *vec)` - Read-only data pointer
 
 ### Modification
 
 - `int cvector_push_back(CVector *vec, const void *element)` - Add element at end
 - `int cvector_pop_back(CVector *vec, void *out_element)` - Remove and get last element
 - `int cvector_insert(CVector *vec, size_t index, const void *element)` - Insert element at position
+- `int cvector_insert_n(CVector *vec, size_t index, const void *element, size_t count)` - Insert copies of one element
+- `int cvector_insert_array(CVector *vec, size_t index, const void *elements, size_t count)` - Insert a contiguous array
 - `int cvector_erase(CVector *vec, size_t index)` - Remove element at position
+- `int cvector_erase_range(CVector *vec, size_t index, size_t count)` - Remove a range of elements
 - `void cvector_clear(CVector *vec)` - Remove all elements
 
 ## Performance Characteristics

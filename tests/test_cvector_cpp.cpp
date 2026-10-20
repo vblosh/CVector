@@ -10,10 +10,14 @@ int test_construction() {
     assert(v1.empty());
     assert(v1.size() == 0);
     
-    // Constructor with capacity
+    // Constructor with an element count
     cvector::Vector<int> v2(20);
-    assert(v2.empty());
+    assert(!v2.empty());
+    assert(v2.size() == 20);
     assert(v2.capacity() >= 20);
+    for (const auto& elem : v2) {
+        assert(elem == 0);
+    }
     
     // Copy constructor
     v1.push_back(42);
@@ -536,6 +540,142 @@ int test_adopt_and_copy_from_cvector(void) {
     return 0;
 }
 
+int test_review_findings(void) {
+    // Fill constructor wins over the range constructor for two integers.
+    cvector::Vector<int> filled(3, 5);
+    assert(filled.size() == 3);
+    for (const auto& elem : filled) {
+        assert(elem == 5);
+    }
+
+    cvector::Vector<int> count_constructed(4);
+    assert(count_constructed.size() == 4);
+    for (const auto& elem : count_constructed) {
+        assert(elem == 0);
+    }
+
+    std::vector<int> source{1, 2, 3};
+    cvector::Vector<int> from_range(source.begin(), source.end());
+    assert(from_range.size() == 3);
+    assert(from_range[2] == 3);
+
+    // Mixed iterator arithmetic and comparison work in both directions.
+    cvector::Vector<int> values{10, 20, 30, 40};
+    auto it = values.begin();
+    auto cit = values.cbegin();
+    assert(*(2 + it) == 30);
+    assert(*(2 + cit) == 30);
+    assert(it == cit);
+    assert(cit == it);
+    assert(!(it != cit));
+    assert(it - cit == 0);
+    assert(cit - it == 0);
+    assert(it < cit + 2);
+    assert(it + 2 == cit + 2);
+
+    cvector::Vector<int>::iterator invalid;
+    try {
+        (void)invalid[0];
+        assert(false);
+    } catch (const std::runtime_error&) {
+    }
+    cvector::Vector<int>::const_iterator const_invalid;
+    try {
+        (void)const_invalid[0];
+        assert(false);
+    } catch (const std::runtime_error&) {
+    }
+
+    // resize must value-initialize new elements with T{}.
+    struct DefaultPoint {
+        int x = 1;
+        int y = 2;
+    };
+    static_assert(std::is_trivially_copyable<DefaultPoint>::value,
+                  "DefaultPoint must be trivially copyable");
+    static_assert(std::is_trivially_destructible<DefaultPoint>::value,
+                  "DefaultPoint must be trivially destructible");
+
+    cvector::Vector<DefaultPoint> points;
+    points.resize(3);
+    for (const auto& point : points) {
+        assert(point.x == 1);
+        assert(point.y == 2);
+    }
+
+    // Invalid and reversed ranges throw without modifying the vector.
+    cvector::Vector<int> range{1, 2, 3, 4};
+    int unrelated = 0;
+    cvector::Vector<int>::const_iterator foreign(&unrelated);
+
+    try {
+        range.erase(foreign, range.cbegin());
+        assert(false);
+    } catch (const std::out_of_range&) {
+    }
+    assert(range.size() == 4);
+
+    try {
+        range.erase(range.cbegin() + 3, range.cbegin() + 1);
+        assert(false);
+    } catch (const std::out_of_range&) {
+    }
+    assert(range.size() == 4);
+
+    auto end_erase = range.erase(range.cend(), range.cend());
+    assert(end_erase == range.end());
+    assert(range.size() == 4);
+
+    try {
+        range.insert(foreign, 9);
+        assert(false);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        range.erase(foreign);
+        assert(false);
+    } catch (const std::out_of_range&) {
+    }
+    assert(range.size() == 4);
+
+    // A moved-from vector rejects iterators that are not its begin iterator.
+    cvector::Vector<int> moved_to(std::move(range));
+    try {
+        range.insert(foreign, 7);
+        assert(false);
+    } catch (const std::out_of_range&) {
+    }
+    assert(range.empty());
+    range.insert(range.cbegin(), 7);
+    assert(range.size() == 1);
+    assert(range[0] == 7);
+
+    // Capacity overflow is a length error, not an allocation failure.
+    cvector::Vector<int> overflow;
+    try {
+        overflow.reserve(std::numeric_limits<size_t>::max());
+        assert(false);
+    } catch (const std::length_error&) {
+    }
+    try {
+        overflow.resize(std::numeric_limits<size_t>::max());
+        assert(false);
+    } catch (const std::length_error&) {
+    }
+
+    cvector::Vector<int> smaller{1, 2, 3};
+    cvector::Vector<int> larger{1, 2, 4};
+    assert(smaller <= larger);
+    assert(larger >= smaller);
+    assert(!(larger <= smaller));
+    assert(!(smaller >= larger));
+    assert(smaller <= smaller);
+    assert(smaller >= smaller);
+
+    std::cout << "? test_review_findings passed\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running C++ Vector Tests...\n\n";
     
@@ -554,6 +694,7 @@ int main() {
     if (test_range_and_initializer_list_insert() != 0) return 1;
     if (test_empty_copy_end_insert_and_moved_from_reuse() != 0) return 1;
     if (test_adopt_and_copy_from_cvector() != 0) return 1;
+    if (test_review_findings() != 0) return 1;
     
     std::cout << "\n? All C++ tests passed!\n";
     return 0;

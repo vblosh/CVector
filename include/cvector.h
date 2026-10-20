@@ -83,25 +83,50 @@ int cvector_pop_back(CVector *vec, void *out_element);
 
 /**
  * @brief Gets a pointer to the element at the specified index
+ * @param vec Pointer to the vector. The vector must not be const because the
+ *            returned pointer is mutable.
+ * @param index The index of the element
+ * @return Pointer to the element, or NULL if index is out of bounds
+ */
+void* cvector_at(CVector *vec, size_t index);
+
+/**
+ * @brief Gets a read-only pointer to the element at the specified index
  * @param vec Pointer to the vector
  * @param index The index of the element
  * @return Pointer to the element, or NULL if index is out of bounds
  */
-void* cvector_at(const CVector *vec, size_t index);
+const void* cvector_at_const(const CVector *vec, size_t index);
 
 /**
  * @brief Gets a pointer to the first element
+ * @param vec Pointer to the vector. The vector must not be const because the
+ *            returned pointer is mutable.
+ * @return Pointer to the first element, or NULL if vector is empty
+ */
+void* cvector_front(CVector *vec);
+
+/**
+ * @brief Gets a read-only pointer to the first element
  * @param vec Pointer to the vector
  * @return Pointer to the first element, or NULL if vector is empty
  */
-void* cvector_front(const CVector *vec);
+const void* cvector_front_const(const CVector *vec);
 
 /**
  * @brief Gets a pointer to the last element
+ * @param vec Pointer to the vector. The vector must not be const because the
+ *            returned pointer is mutable.
+ * @return Pointer to the last element, or NULL if vector is empty
+ */
+void* cvector_back(CVector *vec);
+
+/**
+ * @brief Gets a read-only pointer to the last element
  * @param vec Pointer to the vector
  * @return Pointer to the last element, or NULL if vector is empty
  */
-void* cvector_back(const CVector *vec);
+const void* cvector_back_const(const CVector *vec);
 
 /**
  * @brief Reserves capacity for a specified number of elements
@@ -138,6 +163,35 @@ void cvector_clear(CVector *vec);
 int cvector_insert(CVector *vec, size_t index, const void *element);
 
 /**
+ * @brief Inserts count copies of an element at the specified position
+ * @param vec Pointer to the vector
+ * @param index The position to insert at
+ * @param element Pointer to the element to copy
+ * @param count Number of copies to insert
+ * @return 0 on success, non-zero on failure
+ *
+ * The operation reserves capacity before moving any elements, so a failure
+ * leaves the vector unchanged.
+ */
+int cvector_insert_n(CVector *vec, size_t index, const void *element,
+                     size_t count);
+
+/**
+ * @brief Inserts a contiguous array of elements at the specified position
+ * @param vec Pointer to the vector
+ * @param index The position to insert at
+ * @param elements Pointer to the first element to copy
+ * @param count Number of elements to insert
+ * @return 0 on success, non-zero on failure
+ *
+ * The operation reserves capacity before moving any elements, so a failure
+ * leaves the vector unchanged. The source array may overlap the vector's
+ * storage.
+ */
+int cvector_insert_array(CVector *vec, size_t index, const void *elements,
+                         size_t count);
+
+/**
  * @brief Removes an element at the specified position
  * @param vec Pointer to the vector
  * @param index The position to remove from
@@ -146,16 +200,38 @@ int cvector_insert(CVector *vec, size_t index, const void *element);
 int cvector_erase(CVector *vec, size_t index);
 
 /**
- * @brief Gets a pointer to the underlying data array
+ * @brief Removes count elements starting at the specified position
  * @param vec Pointer to the vector
- * @return Pointer to the data, or NULL if vector is empty
+ * @param index The first position to remove
+ * @param count Number of elements to remove
+ * @return 0 on success, non-zero if the range is invalid
  */
-void* cvector_data(const CVector *vec);
+int cvector_erase_range(CVector *vec, size_t index, size_t count);
+
+/**
+ * @brief Gets a pointer to the underlying data array
+ * @param vec Pointer to the vector. The vector must not be const because the
+ *            returned pointer is mutable.
+ * @return Pointer to the underlying data, or NULL if vec is NULL
+ *
+ * A valid vector always has a non-NULL data pointer, even when it is empty.
+ */
+void* cvector_data(CVector *vec);
+
+/**
+ * @brief Gets a read-only pointer to the underlying data array
+ * @param vec Pointer to the vector
+ * @return Pointer to the underlying data, or NULL if vec is NULL
+ */
+const void* cvector_data_const(const CVector *vec);
 
 /**
  * @brief Shrinks the vector's capacity to match its size
  * @param vec Pointer to the vector
- * @return 0 on success, non-zero on failure
+ * @return 0 on success, non-zero if vec is NULL or allocation fails
+ *
+ * An empty vector retains capacity for one element so that it keeps a valid
+ * storage buffer.
  */
 int cvector_shrink_to_fit(CVector *vec);
 

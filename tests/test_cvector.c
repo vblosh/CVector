@@ -52,6 +52,12 @@ int test_at_front_back(void) {
     
     int *middle = (int *)cvector_at(vec, 1);
     assert(*middle == 200);
+
+    const CVector *const_vec = vec;
+    assert(*(const int *)cvector_at_const(const_vec, 1) == 200);
+    assert(*(const int *)cvector_front_const(const_vec) == 100);
+    assert(*(const int *)cvector_back_const(const_vec) == 300);
+    assert(cvector_data_const(const_vec) == vec->data);
     
     cvector_destroy(vec);
     printf("? test_at_front_back passed\n");
@@ -183,9 +189,13 @@ int test_invalid_arguments_and_empty_vector(void) {
     assert(cvector_capacity(NULL) == 0);
     assert(cvector_is_empty(NULL));
     assert(cvector_data(NULL) == NULL);
+    assert(cvector_data_const(NULL) == NULL);
     assert(cvector_at(NULL, 0) == NULL);
+    assert(cvector_at_const(NULL, 0) == NULL);
     assert(cvector_front(NULL) == NULL);
+    assert(cvector_front_const(NULL) == NULL);
     assert(cvector_back(NULL) == NULL);
+    assert(cvector_back_const(NULL) == NULL);
     assert(cvector_push_back(NULL, &value) == -1);
     assert(cvector_pop_back(NULL, &value) == -1);
     assert(cvector_reserve(NULL, 20) == -1);
@@ -193,7 +203,7 @@ int test_invalid_arguments_and_empty_vector(void) {
     cvector_clear(NULL);
     assert(cvector_insert(NULL, 0, &value) == -1);
     assert(cvector_erase(NULL, 0) == -1);
-    assert(cvector_shrink_to_fit(NULL) == 0);
+    assert(cvector_shrink_to_fit(NULL) == -1);
 
     CVector *vec = cvector_create(sizeof(int));
     assert(vec != NULL);
@@ -265,6 +275,63 @@ int test_aliasing_and_overflow_protection(void) {
     return 0;
 }
 
+int test_bulk_operations_and_growth(void) {
+    CVector *vec = cvector_create_with_capacity(sizeof(int), 2);
+    assert(vec != NULL);
+
+    int one = 1;
+    int two = 2;
+    int seven = 7;
+    assert(cvector_push_back(vec, &one) == 0);
+    assert(cvector_push_back(vec, &two) == 0);
+
+    assert(cvector_insert_n(vec, 1, &seven, 3) == 0);
+    assert(cvector_size(vec) == 5);
+    assert(*(int *)cvector_at(vec, 0) == 1);
+    assert(*(int *)cvector_at(vec, 1) == 7);
+    assert(*(int *)cvector_at(vec, 3) == 7);
+    assert(*(int *)cvector_at(vec, 4) == 2);
+
+    // The source may alias the vector's storage.
+    assert(cvector_insert_n(vec, 0, cvector_at(vec, 1), 2) == 0);
+    assert(cvector_size(vec) == 7);
+    assert(*(int *)cvector_at(vec, 0) == 7);
+    assert(*(int *)cvector_at(vec, 1) == 7);
+    assert(*(int *)cvector_at(vec, 2) == 1);
+
+    int values[] = {8, 9};
+    assert(cvector_insert_array(vec, 2, values, 2) == 0);
+    assert(cvector_size(vec) == 9);
+    assert(*(int *)cvector_at(vec, 2) == 8);
+    assert(*(int *)cvector_at(vec, 3) == 9);
+
+    assert(cvector_erase_range(vec, 1, 3) == 0);
+    assert(cvector_size(vec) == 6);
+    assert(*(int *)cvector_at(vec, 0) == 7);
+    assert(*(int *)cvector_at(vec, 1) == 1);
+    assert(cvector_erase_range(vec, 0, 7) == -1);
+    assert(cvector_size(vec) == 6);
+    assert(cvector_erase_range(vec, 5, 1) == 0);
+    assert(cvector_size(vec) == 5);
+
+    assert(cvector_data(vec) != NULL);
+    cvector_clear(vec);
+    assert(cvector_size(vec) == 0);
+    assert(cvector_data(vec) != NULL);
+    assert(cvector_shrink_to_fit(vec) == 0);
+    assert(cvector_capacity(vec) == 1);
+    assert(cvector_shrink_to_fit(vec) == 0);
+    assert(cvector_capacity(vec) == 1);
+
+    // Growing through resize should leave geometric slack.
+    assert(cvector_resize(vec, 5) == 0);
+    assert(cvector_capacity(vec) > cvector_size(vec));
+
+    cvector_destroy(vec);
+    printf("? test_bulk_operations_and_growth passed\n");
+    return 0;
+}
+
 int main(void) {
     printf("Running CVector tests...\n\n");
     
@@ -280,6 +347,7 @@ int main(void) {
     if (test_invalid_arguments_and_empty_vector() != 0) return 1;
     if (test_growth_and_boundary_modifications() != 0) return 1;
     if (test_aliasing_and_overflow_protection() != 0) return 1;
+    if (test_bulk_operations_and_growth() != 0) return 1;
     
     printf("\n? All tests passed!\n");
     return 0;
